@@ -129,12 +129,18 @@ public final class Transaction {
         return owned.containsAll(itemIds);
     }
 
-    /** Two rows claiming one id would silently collapse a split into an edit. */
+    /**
+     * An {@code item_id} identifies exactly one row, so two rows may not claim the same one. A split turns one
+     * item into several: at most one of them can be the original, and the rest are new items. Allowing the
+     * duplicate instead would store two rows with one identity, making any later edit of that id ambiguous.
+     */
     private static void rejectDuplicateIds(final List<LineItem> replacement) {
         final Set<String> seen = new HashSet<>();
         for (final LineItem item : replacement) {
             if (!seen.add(item.id())) {
-                throw new IllegalArgumentException("duplicate line item id in replacement: " + item.id());
+                throw new IllegalArgumentException("duplicate item_id '" + item.id()
+                        + "': when splitting an item, keep the item_id on at most one row and omit it on the"
+                        + " others so they are created as new items");
             }
         }
     }

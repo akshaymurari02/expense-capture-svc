@@ -9,7 +9,7 @@ import com.harness.expensecapture.extraction.ReconciliationService;
 import com.harness.expensecapture.model.domain.ItemizeStatus;
 import com.harness.expensecapture.model.domain.LineItem;
 import com.harness.expensecapture.model.domain.Money;
-import com.harness.expensecapture.model.domain.OverrideKind;
+import com.harness.expensecapture.model.domain.OverrideSummary;
 import com.harness.expensecapture.model.domain.Transaction;
 import com.harness.expensecapture.model.dto.LineItemInput;
 import com.harness.expensecapture.model.dto.MismatchDetail;
@@ -45,7 +45,9 @@ public class ItemOverrideService {
 
     public Transaction replaceItems(final String transactionId, final UpdateItemsRequest request) {
         final Transaction transaction = transactionLookup.requireById(transactionId);
-        final int previousCount = transaction.getLineItems().size();
+        // Copy before any mutation: overrideLineItems clears the aggregate's list in place, and findById
+        // hands back the stored instance itself, so a live view would be emptied before it could be compared.
+        final List<LineItem> previousItems = List.copyOf(transaction.getLineItems());
 
         // Ask the aggregate what it owns rather than reading its items and deciding here.
         final List<String> suppliedIds = request.items().stream()
@@ -57,9 +59,9 @@ public class ItemOverrideService {
                     "Request references an item_id that does not belong to this transaction");
         }
 
-        final List<LineItem> items = request.items().stream()
-                .map(input -> toLineItem(input, transaction.getCurrency()))
-                .toList();
+        // Read the currency once rather than per item: it is mutable aggregate state.
+        final String currency = transaction.getCurrency();
+        final List<LineItem> items = toLineItems(request, currency);
 
         final ReconciliationOutcome outcome = reconciliationService.evaluate(
                 ReconciliationRequest.forTransaction(transaction, items));
@@ -73,10 +75,31 @@ public class ItemOverrideService {
 
         applyOverride(transaction, items, outcome);
         final Transaction saved = transactionRepository.save(transaction);
-        final OverrideKind kind = OverrideKind.of(previousCount, items.size());
-        log.info("{} Event : ITEM_OVERRIDE SUCCESS kind={} before={} after={}{}", LogConstants.SVC, kind,
-                previousCount, items.size(), LogConstants.id(saved.getId()));
+        final OverrideSummary summary = OverrideSummary.of(previousItems, items);
+        log.info("{} Event : ITEM_OVERRIDE SUCCESS before={} after={} kept={} created={} removed={}{}",
+                LogConstants.SVC, summary.before(), summary.after(), summary.kept(), summary.created(),
+                summary.removed(), LogConstants.id(saved.getId()));
         return saved;
+    }
+
+    /**
+     * Builds the candidate items into a local list; the aggregate is deliberately untouched until the
+     * reconciliation gate has passed.
+     *
+     * <p>{@code Money} and {@code LineItem} enforce their own invariants with {@link IllegalArgumentException}
+     * — a blank currency, a null amount. Those are caller-visible faults, so they are translated to 400 here.
+     * Without this the catch-all would report them as 500, telling the client to retry a request that can
+     * never succeed.
+     */
+    private List<LineItem> toLineItems(final UpdateItemsRequest request, final String currency) {
+        try {
+            return request.items().stream()
+                    .map(input -> toLineItem(input, currency))
+                    .toList();
+        } catch (final IllegalArgumentException | NullPointerException e) {
+            throw new ValidationException(ErrorCodes.INVALID_ITEM_PAYLOAD,
+                    "Line items could not be built: " + e.getMessage());
+        }
     }
 
     /**

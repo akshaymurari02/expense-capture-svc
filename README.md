@@ -8,7 +8,7 @@ auto-itemized line items — and is honest when the numbers do not add up.
 
 - Java 17 · Spring Boot 3.3 · Maven
 - In-memory storage; uploaded files go to local disk
-- 150 tests (107 unit + 43 integration), all green against `fixtures/task-a/gold.json`
+- 155 tests (110 unit + 45 integration), all green against `fixtures/task-a/gold.json`
 - [Postman collection](postman/) — 33 requests, ~340 assertions, verified against a running server
 
 ---
@@ -211,8 +211,10 @@ changed amounts — one endpoint covers all three.
 
 Identity is opt-in per row: supply an existing `item_id` to **edit** that item and keep its id, or omit
 `item_id` for a genuinely new row (the product of a merge or split). An `item_id` that does not belong to the
-transaction is rejected with `400 EXP-VAL-003` rather than silently treated as new. The server derives the verb
-from the count change and logs it as `kind=EDIT|MERGE|SPLIT`.
+transaction is rejected with `400 EXP-VAL-003` rather than silently treated as new, and the same `item_id` may
+not appear twice — when splitting, keep the id on at most one row and omit it on the others. The server logs
+what the request actually did as `before=/after=/kept=/created=/removed=`, derived from item identity rather
+than guessing a single verb (one request can split an item *and* edit others at the same time).
 
 Edit (keeps identity, amounts still reconcile):
 

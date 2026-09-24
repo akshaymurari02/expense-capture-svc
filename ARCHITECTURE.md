@@ -113,7 +113,7 @@ one full-replacement payload, with identity opt-in per row:
 | --------- | -------------------------------------- | -------------------------------------------------------- |
 | **edit**  | same count, existing `item_id` per row | ids preserved — a real edit, not a recreate              |
 | **merge** | fewer rows, no `item_id`               | one new id; the combined row is not any of the originals |
-| **split** | more rows; may keep one `item_id`      | that row keeps its id, the rest are new                  |
+| **split** | more rows; keep the `item_id` on **at most one** row | that row keeps its id, the rest are new; the same id twice is a `400` |
 
 
 Two guards make this safe. An `item_id` the transaction does not own is a `400`, not a silent new item —
@@ -121,9 +121,12 @@ otherwise patching the wrong transaction would succeed and look correct. The sam
 `400`, since two rows claiming one identity would collapse a split into an edit. Both checks run *before*
 reconciliation so that an identity error is never reported as a `409` mismatch.
 
-`OverrideKind` is derived from the count change rather than declared in the request: the client already states
-its intent by sending the list, and a declared verb could contradict it, forcing the server to choose which to
-believe.
+`OverrideSummary` records what the request actually did, derived from item identity:
+`before` / `after` / `kept` / `created` / `removed`. An earlier `OverrideKind` enum classified each request as
+EDIT, MERGE or SPLIT from the change in item count, which was not merely redundant but wrong — one request can
+split an item *and* edit other rows, and splitting one of three items while editing the other two was logged as
+`SPLIT`, hiding the edits entirely. The brief's three verbs describe *user intent*, which a full-replacement
+payload does not carry, so the server reports facts instead of guessing a verb.
 
 Before this, every write minted fresh ids, so a PATCH with byte-identical content regenerated all of them and
 the published `item_id` was an identifier no client could rely on or even reference.
@@ -287,7 +290,7 @@ correct items with zero OCR invocations is the end-to-end proof that the stored 
 
 ## Tests
 
-150 tests: 107 unit (Surefire, `*Test`) + 43 integration (Failsafe, `*IT`, `@SpringBootTest` + `MockMvc`).
+155 tests: 110 unit (Surefire, `*Test`) + 45 integration (Failsafe, `*IT`, `@SpringBootTest` + `MockMvc`).
 The integration suite asserts against `fixtures/task-a/gold.json` directly, so the acceptance criteria are
 executable. Tests that would fail if the logic were gutted include: the printed-vs-derived tax assertions
 (1.90 not 2.95; 3.83 not 4.56), the no-balancing-line assertion, the idempotency assertion, the

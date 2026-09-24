@@ -49,7 +49,9 @@ class TransactionOverrideTest {
         assertThatThrownBy(() -> transaction.overrideLineItems(
                 List.of(original, clashing), ItemizeStatus.COMPLETE, Money.zero(EUR)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("duplicate line item id");
+                .hasMessageContaining("duplicate item_id")
+                // The message must explain how to split correctly, not merely that it failed.
+                .hasMessageContaining("omit it on the");
 
         assertThat(transaction.getLineItems()).isEqualTo(before);
     }

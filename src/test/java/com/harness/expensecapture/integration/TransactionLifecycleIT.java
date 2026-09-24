@@ -362,7 +362,64 @@ class TransactionLifecycleIT extends AbstractReceiptFlowIT {
                         "{\"items\":[{\"item_id\":\"" + itemId + "\",\"description\":\"A\",\"amount\":7.50},"
                                 + "{\"item_id\":\"" + itemId + "\",\"description\":\"B\",\"amount\":7.50}]}")
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EXP-VAL-003"))
+                // The message must tell the client how to split correctly, not just that it failed.
+                .andExpect(jsonPath("$.message").value(containsString("omit it on the")));
+    }
+
+    @Test
+    void should_updateItems_withSplitReusingOneIdOnBothHalves_returnBadRequestAndWriteNothing() throws Exception {
+        final JsonNode processed = processFixture("receipt-clean");
+        final String transactionId = processed.get("transaction_id").asText();
+        final JsonNode original = processed.get("line_items");
+        final String espressoId = original.get(0).get("item_id").asText();
+        final String sandwichId = original.get(1).get("item_id").asText();
+        final String waterId = original.get(2).get("item_id").asText();
+
+        // Splitting the sandwich by reusing its id on BOTH halves: the amounts reconcile to 15.00 net, so
+        // only the duplicate-id rule can reject this.
+        final String body = """
+                { "items": [
+                  { "item_id": "%s", "description": "Espresso", "amount": 3.50 },
+                  { "item_id": "%s", "description": "Sandwich half A", "amount": 4.45 },
+                  { "item_id": "%s", "description": "Sandwich half B", "amount": 4.45 },
+                  { "item_id": "%s", "description": "Mineral water", "amount": 2.60 }
+                ] }
+                """.formatted(espressoId, sandwichId, sandwichId, waterId);
+
+        patchItems(transactionId, body)
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EXP-VAL-003"));
+
+        assertThat(idsOf(getTransaction(transactionId).get("line_items")))
+                .as("a rejected split must leave the stored items untouched")
+                .isEqualTo(idsOf(original));
+    }
+
+    @Test
+    void should_updateItems_withSplitAndNoIdsAtAll_acceptAndMintEveryId() throws Exception {
+        final JsonNode processed = processFixture("receipt-clean");
+        final String transactionId = processed.get("transaction_id").asText();
+        final List<String> originalIds = idsOf(processed.get("line_items"));
+
+        // Omitting every item_id is the simplest legal split: all four rows are new items.
+        final String body = """
+                { "items": [
+                  { "description": "Espresso", "amount": 3.50 },
+                  { "description": "Sandwich half A", "amount": 4.45 },
+                  { "description": "Sandwich half B", "amount": 4.45 },
+                  { "description": "Mineral water", "amount": 2.60 }
+                ] }
+                """;
+
+        final String responseBody = patchItems(transactionId, body)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        final JsonNode split = objectMapper.readTree(responseBody).get("line_items");
+
+        assertThat(split).hasSize(4);
+        assertThat(idsOf(split)).doesNotContainAnyElementsOf(originalIds);
+        assertThat(objectMapper.readTree(responseBody).get("itemize_status").asText()).isEqualTo("COMPLETE");
     }
 
     @Test
