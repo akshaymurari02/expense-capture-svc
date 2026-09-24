@@ -1,0 +1,45 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: expense-capture
+  mvc:
+    # Raise NoHandlerFoundException for unmapped paths so they return 404 instead of reaching the catch-all.
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: always
+    serialization:
+      write-dates-as-timestamps: false
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: ${APP_STORAGE_MAX_FILE_SIZE:10MB}
+      max-request-size: ${APP_STORAGE_MAX_FILE_SIZE:10MB}
+
+app:
+  storage:
+    upload-dir: ${APP_STORAGE_UPLOAD_DIR:./data/uploads}
+    max-file-size: ${APP_STORAGE_MAX_FILE_SIZE:10MB}
+    allowed-types:
+      - image/png
+      - image/jpeg
+      - image/jpg
+      - application/pdf
+      - text/plain
+      - application/octet-stream
+  ocr:
+    provider: ${APP_OCR_PROVIDER:stub}
+    fixture-dir: ${APP_OCR_FIXTURE_DIR:./fixtures/task-a}
+  reconciliation:
+    tolerance: ${APP_RECONCILIATION_TOLERANCE:0.01}
+
+logging:
+  level:
+    com.harness.expensecapture: ${LOG_LEVEL:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"

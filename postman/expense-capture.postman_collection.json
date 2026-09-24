@@ -1,0 +1,2256 @@
+{
+  "info": {
+    "name": "Expense Capture (Task A)",
+    "description": "Receipt upload, taxes as their own records, and auto-itemize.\n\nRun the folders in order, or use Collection Runner on the whole collection: later requests reuse ids captured by earlier ones via collection variables.\n\nStart the service first:\n  mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=8099\n\nThen set baseUrl if you are not on 8099. OCR is stubbed; no API key is needed.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8099",
+      "type": "string"
+    },
+    {
+      "key": "receiptId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "transactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "itemId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "itemId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "itemId3",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "taxOnlyReceiptId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "taxOnlyTransactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mismatchReceiptId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mismatchTransactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "conflictReceiptId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "conflictTransactionId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Health",
+      "item": [
+        {
+          "name": "GET /health/live",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": "Liveness: is the process up? Constant UP by design."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.test('liveness is UP', function () { pm.expect(b.status).to.eql('UP'); });",
+                  "// Liveness must not consult dependencies: a blip must not trigger a restart storm.",
+                  "pm.test('liveness reports no dependencies', function () {",
+                  "  pm.expect(b).to.not.have.property('dependencies');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /health/ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "ready"
+              ]
+            },
+            "description": "Readiness: can it serve traffic? Returns 503 if a prerequisite is down."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200 when prerequisites are up', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.test('reports UP', function () { pm.expect(b.status).to.eql('UP'); });",
+                  "pm.test('identifies the service', function () {",
+                  "  pm.expect(b.service).to.eql('expense-capture');",
+                  "  pm.expect(b.version).to.be.a('string');",
+                  "});",
+                  "pm.test('storage and ocr prerequisites are checked', function () {",
+                  "  pm.expect(b.dependencies.storage.status).to.eql('UP');",
+                  "  pm.expect(b.dependencies.ocr.status).to.eql('UP');",
+                  "  pm.expect(b.dependencies.storage.response_time).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Happy path - receipt-clean",
+      "item": [
+        {
+          "name": "1. Upload receipt-clean.txt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"receipt-clean.txt\"\r\nContent-Type: text/plain\r\n\r\nMERCHANT: Cafe Mitte\nDATE: 2026-03-12\nCURRENCY: EUR\n\nEspresso                    3.50\nSandwich                    8.90\nMineral water               2.60\n\nSubtotal                   15.00\nVAT 19%                     2.85\nTOTAL                      17.85\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "Multipart upload, part name 'file'. The body is embedded so no local file is needed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('201 Created', function () { pm.response.to.have.status(201); });",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('receiptId', b.receipt_id);",
+                  "pm.test('returns a receipt_id', function () {",
+                  "  pm.expect(b.receipt_id).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('echoes stored metadata', function () {",
+                  "  pm.expect(b.original_filename).to.eql('receipt-clean.txt');",
+                  "  pm.expect(b.content_type).to.eql('text/plain');",
+                  "  pm.expect(b.size_bytes).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Process -> matches gold.json",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts/{{receiptId}}/process",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{receiptId}}",
+                "process"
+              ]
+            },
+            "description": "Runs OCR + extraction; creates exactly one transaction."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('transactionId', b.transaction_id);",
+                  "b.line_items.forEach(function (it, i) {",
+                  "  pm.collectionVariables.set('itemId' + (i + 1), it.item_id);",
+                  "});",
+                  "pm.test('header matches gold', function () {",
+                  "  pm.expect(b.merchant).to.eql('Cafe Mitte');",
+                  "  pm.expect(b.date).to.eql('2026-03-12');",
+                  "  pm.expect(b.currency).to.eql('EUR');",
+                  "  pm.expect(Number(b.grand_total)).to.eql(17.85);",
+                  "});",
+                  "// Tax is its own record with name/rate/amount, not a header number.",
+                  "pm.test('tax stored as its own record', function () {",
+                  "  pm.expect(b.taxes).to.have.lengthOf(1);",
+                  "  pm.expect(b.taxes[0].name).to.eql('VAT');",
+                  "  pm.expect(Number(b.taxes[0].rate)).to.eql(0.19);",
+                  "  pm.expect(Number(b.taxes[0].amount)).to.eql(2.85);",
+                  "  pm.expect(b.taxes[0].tax_id).to.be.a('string');",
+                  "});",
+                  "pm.test('auto-itemized into 3 lines', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(3);",
+                  "  pm.expect(b.line_items.map(function (i) { return i.description; }))",
+                  "    .to.eql(['Espresso', 'Sandwich', 'Mineral water']);",
+                  "  pm.expect(b.line_items.map(function (i) { return Number(i.amount); }))",
+                  "    .to.eql([3.5, 8.9, 2.6]);",
+                  "});",
+                  "pm.test('COMPLETE with a zero gap', function () {",
+                  "  pm.expect(b.itemize_status).to.eql('COMPLETE');",
+                  "  pm.expect(Number(b.reconciliation.difference)).to.eql(0);",
+                  "});",
+                  "pm.test('raw OCR stored but never published', function () {",
+                  "  pm.expect(b).to.not.have.property('raw_ocr_text');",
+                  "  pm.expect(b.ocr.provider).to.eql('stub');",
+                  "  pm.expect(b.ocr.text_length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Process again -> idempotent",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts/{{receiptId}}/process",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{receiptId}}",
+                "process"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "// One receipt, one transaction: a second call updates in place.",
+                  "pm.test('same transaction_id', function () {",
+                  "  pm.expect(b.transaction_id).to.eql(pm.collectionVariables.get('transactionId'));",
+                  "});",
+                  "pm.test('3 items, not 6', function () { pm.expect(b.line_items).to.have.lengthOf(3); });",
+                  "// process re-parses from scratch, so these are genuinely new items with new ids.",
+                  "// Re-capture them, otherwise the EDIT below would send ids this transaction no longer owns.",
+                  "const previous = [1, 2, 3].map(function (n) {",
+                  "  return pm.collectionVariables.get('itemId' + n);",
+                  "});",
+                  "b.line_items.forEach(function (it, i) {",
+                  "  pm.collectionVariables.set('itemId' + (i + 1), it.item_id);",
+                  "});",
+                  "pm.test('re-processing mints new item ids (transaction id is what stays stable)', function () {",
+                  "  pm.expect(previous).to.not.include(b.line_items[0].item_id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Get transaction",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "// Capture from stored state, so the EDIT below always sends ids that currently exist.",
+                  "b.line_items.forEach(function (it, i) {",
+                  "  pm.collectionVariables.set('itemId' + (i + 1), it.item_id);",
+                  "});",
+                  "pm.test('same aggregate', function () {",
+                  "  pm.expect(b.transaction_id).to.eql(pm.collectionVariables.get('transactionId'));",
+                  "});",
+                  "pm.test('taxes and items present', function () {",
+                  "  pm.expect(b.taxes).to.have.lengthOf(1);",
+                  "  pm.expect(b.line_items).to.have.lengthOf(3);",
+                  "});",
+                  "pm.test('no raw_ocr_text field at all', function () {",
+                  "  pm.expect(b).to.not.have.property('raw_ocr_text');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. EDIT items (ids preserved)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "EDIT: same count, ids supplied -> identity preserved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"item_id\": \"{{itemId1}}\",\n      \"description\": \"Espresso\",\n      \"amount\": 3.0\n    },\n    {\n      \"item_id\": \"{{itemId2}}\",\n      \"description\": \"Sandwich\",\n      \"amount\": 9.4\n    },\n    {\n      \"item_id\": \"{{itemId3}}\",\n      \"description\": \"Mineral water\",\n      \"amount\": 2.6\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "// Supplying item_id makes this a real edit, not delete-and-recreate.",
+                  "pm.test('identity survives the edit', function () {",
+                  "  pm.expect(b.line_items[0].item_id).to.eql(pm.collectionVariables.get('itemId1'));",
+                  "  pm.expect(b.line_items[1].item_id).to.eql(pm.collectionVariables.get('itemId2'));",
+                  "  pm.expect(b.line_items[2].item_id).to.eql(pm.collectionVariables.get('itemId3'));",
+                  "});",
+                  "pm.test('amounts changed and still reconcile', function () {",
+                  "  pm.expect(Number(b.line_items[0].amount)).to.eql(3);",
+                  "  pm.expect(Number(b.line_items[1].amount)).to.eql(9.4);",
+                  "  pm.expect(b.itemize_status).to.eql('COMPLETE');",
+                  "});",
+                  "pm.test('grand total never recomputed', function () {",
+                  "  pm.expect(Number(b.grand_total)).to.eql(17.85);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. MERGE into one item",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "MERGE: fewer rows, no item_id.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"description\": \"Team lunch\",\n      \"amount\": 15.0\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.test('merged to a single line', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(1);",
+                  "});",
+                  "// The merged row is not any of the originals, so it gets a new id.",
+                  "pm.test('merged row has a fresh id', function () {",
+                  "  const old = [1, 2, 3].map(function (n) {",
+                  "    return pm.collectionVariables.get('itemId' + n);",
+                  "  });",
+                  "  pm.expect(old).to.not.include(b.line_items[0].item_id);",
+                  "});",
+                  "pm.test('15.00 net + 2.85 VAT reconciles to 17.85', function () {",
+                  "  pm.expect(b.itemize_status).to.eql('COMPLETE');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Re-itemize (undoes the merge)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/itemize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "itemize"
+              ]
+            },
+            "description": "Replaces line items only, from stored OCR."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "// Re-parses STORED OCR with no vendor call, which is why this is not a no-op.",
+                  "pm.test('machine proposal restored', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(3);",
+                  "  pm.expect(b.line_items.map(function (i) { return i.description; }))",
+                  "    .to.eql(['Espresso', 'Sandwich', 'Mineral water']);",
+                  "});",
+                  "pm.test('no second transaction created', function () {",
+                  "  pm.expect(b.transaction_id).to.eql(pm.collectionVariables.get('transactionId'));",
+                  "});",
+                  "pm.test('header and taxes untouched', function () {",
+                  "  pm.expect(b.merchant).to.eql('Cafe Mitte');",
+                  "  pm.expect(b.taxes).to.have.lengthOf(1);",
+                  "  pm.expect(Number(b.taxes[0].amount)).to.eql(2.85);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Tax only - no usable items",
+      "item": [
+        {
+          "name": "1. Upload receipt-tax-only.txt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"receipt-tax-only.txt\"\r\nContent-Type: text/plain\r\n\r\nMERCHANT: Berlin Taxi GmbH\nDATE: 2026-03-12\nCURRENCY: EUR\n\nTrip fare\nTOTAL                      24.00\nincl. VAT 19%               3.83\n\n(No itemized list)\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "Multipart upload, part name 'file'. The body is embedded so no local file is needed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('201 Created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('taxOnlyReceiptId', pm.response.json().receipt_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Process -> NEEDS_REVIEW, printed tax",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts/{{taxOnlyReceiptId}}/process",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{taxOnlyReceiptId}}",
+                "process"
+              ]
+            },
+            "description": "Tax present, no reliable line items. Keep the transaction, flag it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200 - the transaction is kept, not rejected', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('taxOnlyTransactionId', b.transaction_id);",
+                  "pm.test('header matches gold', function () {",
+                  "  pm.expect(b.merchant).to.eql('Berlin Taxi GmbH');",
+                  "  pm.expect(Number(b.grand_total)).to.eql(24);",
+                  "});",
+                  "// THE KEY ASSERTION: 3.83 is PRINTED on the receipt.",
+                  "// Deriving from the gross total would give 24.00 * 0.19 = 4.56, which gold forbids.",
+                  "pm.test('tax is read from the receipt, not derived', function () {",
+                  "  pm.expect(b.taxes).to.have.lengthOf(1);",
+                  "  pm.expect(Number(b.taxes[0].amount)).to.eql(3.83);",
+                  "  pm.expect(Number(b.taxes[0].amount)).to.not.eql(4.56);",
+                  "});",
+                  "pm.test('no items invented to fill the gap', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(0);",
+                  "});",
+                  "pm.test('flagged for a human', function () {",
+                  "  pm.expect(b.itemize_status).to.eql('NEEDS_REVIEW');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Mismatch - must not be fixed up",
+      "item": [
+        {
+          "name": "1. Upload receipt-mismatch.txt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"receipt-mismatch.txt\"\r\nContent-Type: text/plain\r\n\r\nMERCHANT: Hotel Shop\nDATE: 2026-03-13\nCURRENCY: EUR\n\nWater                       4.00\nSnacks                      6.00\n\nSubtotal                   10.00\nVAT 19%                     1.90\nTOTAL                      18.50\n\n(Line items do not sum to total)\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "Multipart upload, part name 'file'. The body is embedded so no local file is needed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('201 Created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('mismatchReceiptId', pm.response.json().receipt_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Process -> gap reported, nothing invented",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts/{{mismatchReceiptId}}/process",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{mismatchReceiptId}}",
+                "process"
+              ]
+            },
+            "description": "Items do not sum to the total: keep, flag, never invent a line."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200 - kept despite not adding up', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('mismatchTransactionId', b.transaction_id);",
+                  "pm.test('header matches gold', function () {",
+                  "  pm.expect(b.merchant).to.eql('Hotel Shop');",
+                  "  pm.expect(b.date).to.eql('2026-03-13');",
+                  "});",
+                  "// gold.json: 'Must NOT add a balancing line or change grand_total to 11.90 / 10.00.'",
+                  "pm.test('grand total is NOT rewritten', function () {",
+                  "  pm.expect(Number(b.grand_total)).to.eql(18.5);",
+                  "  pm.expect(Number(b.grand_total)).to.not.eql(11.9);",
+                  "  pm.expect(Number(b.grand_total)).to.not.eql(10);",
+                  "});",
+                  "pm.test('printed tax 1.90, not derived 2.95', function () {",
+                  "  pm.expect(Number(b.taxes[0].amount)).to.eql(1.9);",
+                  "  pm.expect(Number(b.taxes[0].amount)).to.not.eql(2.95);",
+                  "});",
+                  "pm.test('exactly the 2 real items, no balancing line', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(2);",
+                  "  pm.expect(b.line_items.map(function (i) { return i.description; }))",
+                  "    .to.eql(['Water', 'Snacks']);",
+                  "});",
+                  "pm.test('no line item equals the 6.60 residual', function () {",
+                  "  b.line_items.forEach(function (i) {",
+                  "    pm.expect(Number(i.amount)).to.not.eql(6.6);",
+                  "  });",
+                  "});",
+                  "pm.test('the gap is reported as data', function () {",
+                  "  pm.expect(b.itemize_status).to.eql('NEEDS_REVIEW');",
+                  "  pm.expect(Number(b.reconciliation.expected)).to.eql(18.5);",
+                  "  pm.expect(Number(b.reconciliation.actual)).to.eql(11.9);",
+                  "  pm.expect(Number(b.reconciliation.difference)).to.eql(6.6);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Re-itemize -> still no balancing line",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{mismatchTransactionId}}/itemize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{mismatchTransactionId}}",
+                "itemize"
+              ]
+            },
+            "description": "Re-running itemize must not close the gap either."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.test('still 2 items and still flagged', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(2);",
+                  "  pm.expect(b.itemize_status).to.eql('NEEDS_REVIEW');",
+                  "});",
+                  "pm.test('total still untouched', function () {",
+                  "  pm.expect(Number(b.grand_total)).to.eql(18.5);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Override conflict - 409 writes nothing",
+      "item": [
+        {
+          "name": "1. Upload a clean receipt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"receipt-clean.txt\"\r\nContent-Type: text/plain\r\n\r\nMERCHANT: Cafe Mitte\nDATE: 2026-03-12\nCURRENCY: EUR\n\nEspresso                    3.50\nSandwich                    8.90\nMineral water               2.60\n\nSubtotal                   15.00\nVAT 19%                     2.85\nTOTAL                      17.85\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "Multipart upload, part name 'file'. The body is embedded so no local file is needed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('201 Created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('conflictReceiptId', pm.response.json().receipt_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Process it",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts/{{conflictReceiptId}}/process",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{conflictReceiptId}}",
+                "process"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('conflictTransactionId', b.transaction_id);",
+                  "pm.test('starts COMPLETE with 3 items', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(3);",
+                  "  pm.expect(b.itemize_status).to.eql('COMPLETE');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Non-reconciling override -> 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{conflictTransactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{conflictTransactionId}}",
+                "items"
+              ]
+            },
+            "description": "9.00 + 2.85 VAT = 11.85, not 17.85 -> 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"description\": \"Lunch\",\n      \"amount\": 9.0\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "// A human assertion that is arithmetically false is rejected outright.",
+                  "assertErrorEnvelope('EXP-CON-001', 409);",
+                  "const b = pm.response.json();",
+                  "pm.test('the mismatch is explained, not silently fixed', function () {",
+                  "  pm.expect(Number(b.mismatch.expected)).to.eql(17.85);",
+                  "  pm.expect(Number(b.mismatch.actual)).to.eql(11.85);",
+                  "  pm.expect(Number(b.mismatch.difference)).to.eql(6);",
+                  "  pm.expect(b.mismatch.currency).to.eql('EUR');",
+                  "  pm.expect(b.mismatch.line_item_basis).to.eql('NET');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Verify nothing was written",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{conflictTransactionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{conflictTransactionId}}"
+              ]
+            },
+            "description": "Proves the 409 was rejected BEFORE any mutation."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "// The hard invariant: a rejected override must leave zero trace.",
+                  "pm.test('original 3 items intact', function () {",
+                  "  pm.expect(b.line_items).to.have.lengthOf(3);",
+                  "  pm.expect(b.line_items.map(function (i) { return i.description; }))",
+                  "    .to.eql(['Espresso', 'Sandwich', 'Mineral water']);",
+                  "});",
+                  "pm.test('status unchanged', function () {",
+                  "  pm.expect(b.itemize_status).to.eql('COMPLETE');",
+                  "});",
+                  "pm.test('total unchanged', function () {",
+                  "  pm.expect(Number(b.grand_total)).to.eql(17.85);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 Validation guards",
+      "item": [
+        {
+          "name": "Empty file -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"empty.txt\"\r\nContent-Type: text/plain\r\n\r\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "Zero-byte file part."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "// An empty PART (not an empty body): the multipart header is present and valid, so this",
+                  "// must reach the size/emptiness guard rather than being rejected as 415.",
+                  "assertErrorEnvelope('EXP-VAL-001', 400);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Disallowed content type -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"wrong-type.gif\"\r\nContent-Type: image/gif\r\n\r\nMERCHANT: Not A Receipt\nTOTAL 1.00\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "image/gif is not in the allowlist."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-VAL-002', 400);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spoofed content type -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=ExpenseCaptureBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--ExpenseCaptureBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"spoofed.png\"\r\nContent-Type: image/png\r\n\r\n%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n\r\n--ExpenseCaptureBoundary--\r\n",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "Magic-byte check catches a spoofed declaration."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "// The bytes are a PDF but it is declared image/png. Content-Type alone is never trusted.",
+                  "assertErrorEnvelope('EXP-VAL-009', 400);",
+                  "pm.test('the real type is named', function () {",
+                  "  pm.expect(pm.response.json().message).to.include('application/pdf');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown receipt id -> 404",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/receipts/does-not-exist/process",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "does-not-exist",
+                "process"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-NOT-001', 404);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown transaction id -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "does-not-exist"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-NOT-002', 404);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing items field -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-VAL-003', 400);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Blank description -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"description\": \"   \",\n      \"amount\": 15.0\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-VAL-003', 400);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown item_id -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "Silently minting a new id would hide a client bug.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"item_id\": \"not-a-real-id\",\n      \"description\": \"Team lunch\",\n      \"amount\": 15.0\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "// Amounts DO reconcile here, so a 409 cannot be the reason: the bad id is.",
+                  "assertErrorEnvelope('EXP-VAL-003', 400);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate item_id -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"item_id\": \"{{itemId1}}\",\n      \"description\": \"Half A\",\n      \"amount\": 7.5\n    },\n    {\n      \"item_id\": \"{{itemId1}}\",\n      \"description\": \"Half B\",\n      \"amount\": 7.5\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "// Two rows claiming one identity would collapse a split into an edit.",
+                  "assertErrorEnvelope('EXP-VAL-003', 400);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON body -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"items\": [ this is not json",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "// A caller's unparseable body must never be a 5xx: retrying it can never succeed.",
+                  "assertErrorEnvelope('EXP-VAL-006', 400);",
+                  "pm.test('Jackson internals are not echoed', function () {",
+                  "  pm.expect(pm.response.json().message)",
+                  "    .to.eql('Request body is missing or not valid JSON');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 Protocol errors",
+      "item": [
+        {
+          "name": "Wrong verb (PUT) -> 405",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"description\": \"X\",\n      \"amount\": 15.0\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-VAL-007', 405);",
+                  "pm.test('Allow header names the valid verb', function () {",
+                  "  pm.expect(pm.response.headers.get('Allow')).to.include('PATCH');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong Content-Type -> 415",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "items"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "items",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-VAL-008', 415);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown path -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/nope",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nope"
+              ]
+            },
+            "description": "Unknown URLs 404 instead of reaching the catch-all as a 500."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "assertErrorEnvelope('EXP-NOT-003', 404);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Security headers present",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('baseline security headers on every response', function () {",
+                  "  pm.expect(pm.response.headers.get('X-Content-Type-Options')).to.eql('nosniff');",
+                  "  pm.expect(pm.response.headers.get('X-Frame-Options')).to.eql('DENY');",
+                  "  pm.expect(pm.response.headers.get('Referrer-Policy'))",
+                  "    .to.eql('strict-origin-when-cross-origin');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Correlation id is echoed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-trace-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": "Correlation id is accepted or generated, then echoed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shared helper: every error body uses the same envelope.",
+                  "function assertErrorEnvelope(code, status) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ' + status, function () { pm.response.to.have.status(status); });",
+                  "  pm.test('code ' + code, function () { pm.expect(body.code).to.eql(code); });",
+                  "  pm.test('envelope is complete', function () {",
+                  "    pm.expect(body).to.have.property('timestamp');",
+                  "    pm.expect(body.status).to.eql(status);",
+                  "    pm.expect(body).to.have.property('error');",
+                  "    pm.expect(body).to.have.property('message');",
+                  "    pm.expect(body).to.have.property('path');",
+                  "  });",
+                  "  pm.test('no internals leak to the client', function () {",
+                  "    const raw = pm.response.text();",
+                  "    pm.expect(raw).to.not.include('java.');",
+                  "    pm.expect(raw).to.not.include('Exception');",
+                  "  });",
+                  "}",
+                  "",
+                  "pm.test('the supplied correlation id comes back', function () {",
+                  "  pm.expect(pm.response.headers.get('X-Correlation-ID')).to.eql('postman-trace-001');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
